@@ -1,0 +1,11 @@
+main.c:117:6:setDirectionS0	16	static
+main.c:129:6:motionComplete	16	static
+main.c:141:5:main	16	static
+main.c:267:6:setNextInterruptInterval	24	static
+main.c:328:6:ramp	32	static
+main.c:340:6:SystemClock_Config	88	static
+main.c:385:13:MX_TIM2_Init	32	static
+main.c:430:13:MX_TIM3_Init	32	static
+main.c:475:13:MX_TIM4_Init	32	static
+main.c:520:13:MX_GPIO_Init	32	static
+main.c:548:6:Error_Handler	4	static
