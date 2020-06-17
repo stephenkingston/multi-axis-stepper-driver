@@ -25,7 +25,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
-#include "DWT_Delay.h"
 
 /* USER CODE END Includes */
 
@@ -38,6 +37,9 @@
 #define MIN_INTERVAL 15.0
 #define MAX_INTERVAL 1000.0
 #define F_CPU 72000000UL
+#define ACTIVATED 1
+#define DEACTIVATED 0
+#define NUM_OF_STEPPER_MOTORS 3
 
 /* USER CODE END PTD */
 
@@ -56,10 +58,7 @@ TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
-volatile uint8_t rampingUp = 0;
-volatile uint8_t rampingDown = 0;
-volatile uint8_t rampUpCount = 0;
-volatile uint8_t rampDownCount = 0;
+
 uint8_t temp = 0;
 
 static const float sine[32] = {
@@ -108,12 +107,18 @@ static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 void setNextInterruptInterval(StepperMotor* motor);
-void ramp(uint8_t rampCount);
+void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+void microsecondDelay()
+{
+	for (int i = 0; i < 2; i++)
+	{}
+}
 
 void setDirectionS0(int direction)
 {
@@ -127,20 +132,223 @@ void setDirectionS0(int direction)
 	}
 }
 
+void setDirectionS1(int direction)
+{
+	if (direction == ANTICLOCKWISE)
+	{
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, SET);
+	}
+	else
+	{
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_3, RESET);
+	}
+}
+
+void setDirectionS2(int direction)
+{
+	if (direction == ANTICLOCKWISE)
+	{
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, SET);
+	}
+	else
+	{
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, RESET);
+	}
+}
+
+void sendPulseS0()
+{
+	 HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0);
+	 microsecondDelay();
+	 HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0);
+}
+
+void sendPulseS1()
+{
+	 HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_2);
+	 microsecondDelay();
+	 HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_2);
+}
+
+void sendPulseS2()
+{
+	 HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_4);
+	 microsecondDelay();
+	 HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_4);
+}
+
+
 void motionComplete(StepperMotor* motor)
 {
 	motor->currentCount = 0;
 	motor->targetCount = 0;
-	rampingUp = 0;
-	rampingDown = 0;
-	rampUpCount = 0;
-	rampDownCount = 0;
+	motor->rampingUp = 0;
+	motor->rampingDown = 0;
+	motor->rampUpCount = 0;
+	motor->rampDownCount = 0;
 }
 
-void microsecondDelay()
+void programInit()
 {
-	for (int i = 0; i < 2; i++)
-	{}
+	//Timer Initializations
+	motor[0].timerHandle = &htim2;
+	motor[1].timerHandle = &htim3;
+	motor[2].timerHandle = &htim4;
+
+	//Direction-set function pointers
+	motor[0].setDirection = setDirectionS0;
+	motor[1].setDirection = setDirectionS1;
+	motor[2].setDirection = setDirectionS2;
+
+	//Set pulse pointers
+	motor[0].sendPulse = sendPulseS0;
+	motor[1].sendPulse = sendPulseS1;
+	motor[2].sendPulse = sendPulseS2;
+
+	for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
+	{
+		motionComplete(&motor[i]);
+		motor[i].scaleFactor = 1;
+		motor[i].newCommandAvailable = 0;
+		motor[i].absolutePosition = -800;
+	}
+}
+
+
+void setNextInterruptInterval(StepperMotor* motor)
+{
+	if (abs(motor->targetCount) > 2*NO_OF_RAMP_STEPS)
+	{
+		//Calculate next delay
+		if (motor->currentCount < NO_OF_RAMP_STEPS)
+		{
+			motor->rampUpCount = abs(motor->currentCount);
+			ramp(motor->rampUpCount, motor->timerHandle);
+			motor->rampingUp = ACTIVATED;
+			motor->rampingDown = DEACTIVATED;
+		}
+		else if (motor->targetCount - motor->currentCount < NO_OF_RAMP_STEPS)
+		{
+			motor->rampDownCount = abs(motor->targetCount - motor->currentCount);
+			ramp(motor->rampDownCount, motor->timerHandle);
+			motor->rampingDown = ACTIVATED;
+			motor->rampingUp = DEACTIVATED;
+		}
+		else if (motor->targetCount == motor->currentCount)
+		{
+			motionComplete(motor);
+		}
+	}
+	else
+	{
+		if (motor->currentCount < (int)(abs(motor->targetCount)/2.0))
+		{
+			motor->rampUpCount = abs((motor->currentCount));
+			ramp(motor->rampUpCount, motor->timerHandle);
+			motor->rampingUp = ACTIVATED;
+			motor->rampingDown = DEACTIVATED;
+		}
+		else if (motor->targetCount == motor->currentCount)
+		{
+			motionComplete(motor);
+		}
+		else if (motor->currentCount >= (int)(abs(motor->targetCount)/2.0))
+		{
+			motor->rampDownCount = abs((motor->targetCount - motor->currentCount));
+			//Test case
+			// if (motor->rampDownCount == 5 && temp == 0)
+			// {
+			//	 motor->newAbsoluteTarget = 70;
+			//	 motor->newCommandAvailable = ACTIVATED;
+			//	 temp = 1;
+			// }
+			ramp(motor->rampDownCount, motor->timerHandle);
+			motor->rampingDown = ACTIVATED;
+			motor->rampingUp = DEACTIVATED;
+		}
+	}
+}
+
+void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle)
+{
+	uint16_t nextCompareValue = (uint16_t)((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
+			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*sine[rampCount]);
+
+	__HAL_TIM_SET_AUTORELOAD(timerHandle, nextCompareValue);
+}
+
+void runMotor(StepperMotor* motor)
+{
+	 motor->sendPulse();
+	 motor->pulseFlag = 0;
+	 motor->currentCount ++;
+	 motor->absolutePosition += motor->direction;
+
+	 if (motor->currentCount == motor->targetCount)
+	 {
+		 motionComplete(motor);
+	 }
+	 else if (motor->currentCount <= NO_OF_RAMP_STEPS ||
+			 abs(motor->targetCount - motor->currentCount) <= NO_OF_RAMP_STEPS)
+	 {
+		 setNextInterruptInterval(motor);
+	 }
+}
+
+void configForNewCommand(StepperMotor* motor)
+{
+		//Set Direction
+		if (motor->absolutePosition > motor->newAbsoluteTarget)
+		{
+			motor->newDirection = CLOCKWISE;
+			motor->setDirection(CLOCKWISE);
+		}
+		else if (motor->absolutePosition < motor->newAbsoluteTarget)
+		{
+			motor->newDirection = ANTICLOCKWISE;
+			motor->setDirection(ANTICLOCKWISE);
+		}
+
+		//Define motion
+		if (motor->direction == motor->newDirection)
+		{
+			if(motor->rampingDown == 1)
+			{
+				//Stop ramp-down and initiate ramp up as required by the new target
+				motor->targetCount = abs(motor->newAbsoluteTarget - motor->currentCount) + motor->rampDownCount;
+				motor->currentCount = motor->rampDownCount;
+				motor->newCommandAvailable = 0;
+			}
+			else //Seems to work
+			{
+				motor->targetCount = motor->currentCount +
+						abs(motor->absolutePosition - motor->newAbsoluteTarget);
+				//Same direction
+				motor->newCommandAvailable = 0;
+			}
+		}
+		else
+		{
+			if(motor->rampingDown == 1) //works, obviously
+			{
+				//Ignore and allow the ramp-down to continue
+			}
+			if (motor->rampingUp == 1) //seems to work
+			{
+				//Start ramp-down sequence with the same number of steps that has currently been ramped up
+				motor->targetCount = 2*motor->rampUpCount;
+				motor->currentCount = motor->rampUpCount;
+				motor->rampingDown = 1;
+				motor->rampingUp = 0;
+			}
+			else if (motor->rampingUp == 0 && motor->rampingDown == 0) //seems to work
+			{
+				motor->targetCount = abs(motor->newAbsoluteTarget - motor->absolutePosition);
+				motor->direction = motor->newDirection;
+				motor->setDirection(motor->direction);
+				motor->newCommandAvailable = 0;
+			}
+		}
 }
 
 /* USER CODE END 0 */
@@ -152,8 +360,8 @@ void microsecondDelay()
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	motor[0].newCommandAvailable = 0;
 
+	programInit();
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -179,174 +387,32 @@ int main(void)
   MX_TIM3_Init();
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
-  motor[0].setDirection = setDirectionS0;
-  motor[0].absolutePosition = 0;
-  int absolutePositionRequested = 15;
-
-  if (motor[0].absolutePosition > absolutePositionRequested)
-  {
-	  motor[0].direction = CLOCKWISE;
-	  motor[0].setDirection(CLOCKWISE);
-  }
-  else if (motor[0].absolutePosition < absolutePositionRequested)
-  {
-	  motor[0].direction = ANTICLOCKWISE;
-	  motor[0].setDirection(ANTICLOCKWISE);
-  }
-  motor[0].targetCount = abs(absolutePositionRequested - motor[0].absolutePosition);
-  motor[0].currentCount = 0;
-
 
   HAL_TIM_Base_Start_IT(&htim2);
-  //DWT_Delay(2);
+  motor[0].newAbsoluteTarget = 100;
+  motor[0].newCommandAvailable = ACTIVATED;
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-	  if (motor[0].newCommandAvailable)
-	  		 {
-	  			 //Set Direction
-	  			 if (motor[0].absolutePosition > motor[0].newAbsoluteTarget)
-	  			 {
-	  				 motor[0].newDirection = CLOCKWISE;
-	  				 //motor[0].setDirection(CLOCKWISE);
-	  			 }
-	  			 else if (motor[0].absolutePosition < motor[0].newAbsoluteTarget)
-	  			 {
-	  				 motor[0].newDirection = ANTICLOCKWISE;
-	  				 //motor[0].setDirection(ANTICLOCKWISE);
-	  			 }
-
-	  			 //Define motion
-	  			 if (motor[0].direction == motor[0].newDirection)
-	  			 {
-	  				 if(rampingDown == 1)
-	  				 {
-	  					//Stop ramp-down and initiate ramp up as required by the new target
-	  					 motor[0].targetCount = abs(motor[0].newAbsoluteTarget - motor[0].currentCount) + rampDownCount;
-	  					 motor[0].currentCount = rampDownCount;
-	  					 motor[0].newCommandAvailable = 0;
-	  				 }
-	  				 else //Seems to work
-	  				 {
-	  					 motor[0].targetCount = motor[0].currentCount + abs(motor[0].absolutePosition - motor[0].newAbsoluteTarget);
-	  					 //Same direction
-	  					 motor[0].newCommandAvailable = 0;
-	  				 }
-	  			 }
-	  			 else
-	  			 {
-	  				 if(rampingDown == 1) //works, obviously
-	  				 {
-	  					 	//Ignore and allow the ramp-down to continue
-	  				 }
-	  				 if (rampingUp == 1) //seems to work
-	  				 {
-	  					 //Start ramp-down sequence with the same number of steps that has currently been ramped up
-	  					 motor[0].targetCount = 2*rampUpCount;
-	  					 motor[0].currentCount = rampUpCount;
-	  					 rampingDown = 1;
-	  					 rampingUp = 0;
-	  				 }
-	  				 else if (rampingUp == 0 && rampingDown == 0) //seems to work
-	  				 {
-	  					 motor[0].targetCount = abs(motor[0].newAbsoluteTarget - motor[0].absolutePosition);
-	  					 motor[0].direction = motor[0].newDirection;
-	  					 motor[0].setDirection(motor[0].direction);
-	  					 motor[0].newCommandAvailable = 0;
-	  				 }
-	  			 }
-	  		 }
+	 if (motor[0].newCommandAvailable)
+	 {
+		 configForNewCommand(&motor[0]);
+	 }
 
 	 if (motor[0].pulseFlag == 1)
 	 {
-		 HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0);
-		 motor[0].pulseFlag = 0;
-		 microsecondDelay();
-		 HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0);
-
-		 motor[0].currentCount ++;
-		 motor[0].absolutePosition += motor[0].direction;
-
-		 if (motor[0].currentCount == motor[0].targetCount)
-		 {
-			 motionComplete(&motor[0]);
-		 }
-		 else if (motor[0].currentCount <= NO_OF_RAMP_STEPS || abs(motor[0].targetCount - motor[0].currentCount) <= NO_OF_RAMP_STEPS)
-		 {
-			 setNextInterruptInterval(&motor[0]);
-		 }
+		 runMotor(&motor[0]);
 	 }
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
-}
-
-void setNextInterruptInterval(StepperMotor* motor)
-{
-	if (abs(motor->targetCount) > 64)
-	{
-	//Calculate next delay
-		if (motor->currentCount < NO_OF_RAMP_STEPS)
-		{
-			rampUpCount = abs(motor->currentCount);
-			ramp(rampUpCount);
-			rampingUp = 1;
-			rampingDown = 0;
-		}
-		else if (motor->targetCount - motor->currentCount < NO_OF_RAMP_STEPS)
-		{
-			rampDownCount = abs(motor->targetCount - motor->currentCount);
-			ramp(rampDownCount);
-			rampingDown = 1;
-			rampingUp = 0;
-		}
-		else if (motor->targetCount == motor->currentCount)
-		{
-			motionComplete(motor);
-		}
-	}
-	else
-	{
-		if (motor[0].currentCount < (int)(abs(motor->targetCount)/2.0))
-		{
-			rampUpCount = abs((motor->currentCount));
-			ramp(rampUpCount);
-			rampingUp = 1;
-			rampingDown = 0;
-		}
-		else if (motor->targetCount == motor->currentCount)
-		{
-			motionComplete(motor);
-		}
-		else if (motor[0].currentCount >= (int)(abs(motor->targetCount)/2.0))
-		{
-			rampDownCount = abs((motor->targetCount - motor->currentCount));
-			 if (rampDownCount == 5 && temp == 0)
-			 {
-				 motor[0].newAbsoluteTarget = 70;
-				 motor[0].newCommandAvailable = 1;
-				 temp = 1;
-			 }
-			ramp(rampDownCount);
-			rampingDown = 1;
-			rampingUp = 0;
-		}
-	}
-}
-
-void ramp(uint8_t rampCount)
-{
-	uint16_t nextCompareValue = (uint16_t)((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
-			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*sine[rampCount]);
-
-	__HAL_TIM_SET_AUTORELOAD(&htim2, nextCompareValue);
 }
 
 /**
@@ -414,7 +480,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 256;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 3;
+  htim2.Init.Period = 286;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -502,7 +568,7 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = PRESCALER;
+  htim4.Init.Prescaler = 256;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim4.Init.Period = 286;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -542,10 +608,16 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3 
+                          |GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7 
+                          |GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PA0 PA1 PA2 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2;
+  /*Configure GPIO pins : PA0 PA1 PA2 PA3 
+                           PA4 PA5 PA6 PA7 
+                           PA8 PA9 PA10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3 
+                          |GPIO_PIN_4|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7 
+                          |GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

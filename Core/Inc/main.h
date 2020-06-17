@@ -30,7 +30,6 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "stm32f1xx_hal.h"
 
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
@@ -43,22 +42,26 @@ extern bool timer1flag;
 
 typedef struct StepperMotor
 {
-	volatile uint8_t* port;
-	volatile uint8_t* directionPort;
-	uint8_t directionPin;
-	uint8_t pinNumber;
+	void (*sendPulse)();
 	void (*setDirection)(int);
+	volatile uint8_t direction;
 
 	volatile int absolutePosition;
 	volatile int16_t currentCount;
 	volatile int16_t targetCount;
 
+	//Other motion parameters
+	volatile uint8_t rampingUp;
+	volatile uint8_t rampingDown;
+	volatile uint8_t rampUpCount;
+	volatile uint8_t rampDownCount;
 
-	//Set pulseFlag equal to 0 for no pulse, 1 for a high pulse and 2 for a low pulse
+
+	//Set pulseFlag equal to 0 for no pulse, 1 for a pulse
 	volatile uint8_t pulseFlag;
-	uint8_t timer;
+	TIM_HandleTypeDef* timerHandle;
+	volatile float scaleFactor;
 
-	volatile uint8_t direction;
 
 	//For fresh instructions from USB, all of them are zero  otherwise
 	volatile int8_t newDirection;
@@ -67,7 +70,7 @@ typedef struct StepperMotor
 
 }StepperMotor;
 
-StepperMotor motor[1];
+StepperMotor motor[3];
 
 /* USER CODE END ET */
 
