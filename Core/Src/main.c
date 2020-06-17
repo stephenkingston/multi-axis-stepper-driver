@@ -56,10 +56,11 @@ TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
-uint8_t rampingUp = 0;
-uint8_t rampingDown = 0;
-uint8_t rampUpCount = 0;
-uint8_t rampDownCount = 0;
+volatile uint8_t rampingUp = 0;
+volatile uint8_t rampingDown = 0;
+volatile uint8_t rampUpCount = 0;
+volatile uint8_t rampDownCount = 0;
+uint8_t temp = 0;
 
 static const float sine[32] = {
 		1.0000,
@@ -122,7 +123,7 @@ void setDirectionS0(int direction)
 	}
 	else
 	{
-		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, SET);
+		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, RESET);
 	}
 }
 
@@ -130,6 +131,16 @@ void motionComplete(StepperMotor* motor)
 {
 	motor->currentCount = 0;
 	motor->targetCount = 0;
+	rampingUp = 0;
+	rampingDown = 0;
+	rampUpCount = 0;
+	rampDownCount = 0;
+}
+
+void microsecondDelay()
+{
+	for (int i = 0; i < 2; i++)
+	{}
 }
 
 /* USER CODE END 0 */
@@ -169,8 +180,8 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   motor[0].setDirection = setDirectionS0;
-  motor[0].absolutePosition = 10;
-  int absolutePositionRequested = 50;
+  motor[0].absolutePosition = 0;
+  int absolutePositionRequested = 15;
 
   if (motor[0].absolutePosition > absolutePositionRequested)
   {
@@ -195,63 +206,76 @@ int main(void)
   while (1)
   {
 
+	  if (motor[0].newCommandAvailable)
+	  		 {
+	  			 //Set Direction
+	  			 if (motor[0].absolutePosition > motor[0].newAbsoluteTarget)
+	  			 {
+	  				 motor[0].newDirection = CLOCKWISE;
+	  				 //motor[0].setDirection(CLOCKWISE);
+	  			 }
+	  			 else if (motor[0].absolutePosition < motor[0].newAbsoluteTarget)
+	  			 {
+	  				 motor[0].newDirection = ANTICLOCKWISE;
+	  				 //motor[0].setDirection(ANTICLOCKWISE);
+	  			 }
+
+	  			 //Define motion
+	  			 if (motor[0].direction == motor[0].newDirection)
+	  			 {
+	  				 if(rampingDown == 1)
+	  				 {
+	  					//Stop ramp-down and initiate ramp up as required by the new target
+	  					 motor[0].targetCount = abs(motor[0].newAbsoluteTarget - motor[0].currentCount) + rampDownCount;
+	  					 motor[0].currentCount = rampDownCount;
+	  					 motor[0].newCommandAvailable = 0;
+	  				 }
+	  				 else //Seems to work
+	  				 {
+	  					 motor[0].targetCount = motor[0].currentCount + abs(motor[0].absolutePosition - motor[0].newAbsoluteTarget);
+	  					 //Same direction
+	  					 motor[0].newCommandAvailable = 0;
+	  				 }
+	  			 }
+	  			 else
+	  			 {
+	  				 if(rampingDown == 1) //works, obviously
+	  				 {
+	  					 	//Ignore and allow the ramp-down to continue
+	  				 }
+	  				 if (rampingUp == 1) //seems to work
+	  				 {
+	  					 //Start ramp-down sequence with the same number of steps that has currently been ramped up
+	  					 motor[0].targetCount = 2*rampUpCount;
+	  					 motor[0].currentCount = rampUpCount;
+	  					 rampingDown = 1;
+	  					 rampingUp = 0;
+	  				 }
+	  				 else if (rampingUp == 0 && rampingDown == 0) //seems to work
+	  				 {
+	  					 motor[0].targetCount = abs(motor[0].newAbsoluteTarget - motor[0].absolutePosition);
+	  					 motor[0].direction = motor[0].newDirection;
+	  					 motor[0].setDirection(motor[0].direction);
+	  					 motor[0].newCommandAvailable = 0;
+	  				 }
+	  			 }
+	  		 }
+
 	 if (motor[0].pulseFlag == 1)
 	 {
 		 HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0);
 		 motor[0].pulseFlag = 0;
+		 microsecondDelay();
 		 HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_0);
+
 		 motor[0].currentCount ++;
 		 motor[0].absolutePosition += motor[0].direction;
-		 if (motor[0].newCommandAvailable)
-		 {
-			 //Set Direction
-			 if (motor[0].absolutePosition > motor[0].newAbsoluteTarget)
-			 {
-				 motor[0].newDirection = CLOCKWISE;
-			 }
-			 else if (motor[0].absolutePosition < motor[0].newAbsoluteTarget)
-			 {
-				 motor[0].newDirection = ANTICLOCKWISE;
-			 }
 
-			 //Define motion
-			 if (motor[0].direction == motor[0].newDirection)
-			 {
-				 if(rampingDown == 1)
-				 {
-					//Stop ramp-down and initiate ramp up with the same number of rampDown steps done
-					 motor[0].targetCount = abs(motor[0].absolutePosition - motor[0].newAbsoluteTarget);
-					 motor[0].currentCount = rampDownCount;
-					 motor[0].newCommandAvailable = 0;
-				 }
-				 else
-				 {
-					 motor[0].targetCount += abs(motor[0].absolutePosition - motor[0].newAbsoluteTarget);
-					 //Same direction
-					 motor[0].newCommandAvailable = 0;
-				 }
-			 }
-			 else
-			 {
-				 if(rampingDown == 1)
-				 {
-					 	//Ignore and allow the ramp-down to continue
-				 }
-				 if (rampingUp == 1)
-				 {
-					 //Start ramp-down sequence with the same number of steps that has currently been ramped up
-					 motor[0].targetCount = 2*rampUpCount;
-					 motor[0].currentCount = rampUpCount;
-				 }
-				 else if (rampingUp == 0 && rampingDown == 0)
-				 {
-					 motor[0].targetCount = abs(motor[0].absolutePosition - motor[0].newAbsoluteTarget);
-					 motor[0].direction = motor[0].newDirection;
-					 motor[0].newCommandAvailable = 0;
-				 }
-			 }
+		 if (motor[0].currentCount == motor[0].targetCount)
+		 {
+			 motionComplete(&motor[0]);
 		 }
-		 else if (motor[0].currentCount <= NO_OF_RAMP_STEPS || motor[0].targetCount - motor[0].currentCount <= NO_OF_RAMP_STEPS)
+		 else if (motor[0].currentCount <= NO_OF_RAMP_STEPS || abs(motor[0].targetCount - motor[0].currentCount) <= NO_OF_RAMP_STEPS)
 		 {
 			 setNextInterruptInterval(&motor[0]);
 		 }
@@ -287,13 +311,6 @@ void setNextInterruptInterval(StepperMotor* motor)
 		{
 			motionComplete(motor);
 		}
-		else
-		{
-			rampingUp = 0;
-			rampingDown = 0;
-			rampUpCount = 0;
-			rampDownCount = 0;
-		}
 	}
 	else
 	{
@@ -304,23 +321,22 @@ void setNextInterruptInterval(StepperMotor* motor)
 			rampingUp = 1;
 			rampingDown = 0;
 		}
-		else if (motor[0].currentCount > (int)(abs(motor->targetCount)/2.0))
-		{
-			rampDownCount = abs((motor->targetCount - motor->currentCount));
-			ramp(rampDownCount);
-			rampingDown = 1;
-			rampingUp = 0;
-		}
 		else if (motor->targetCount == motor->currentCount)
 		{
 			motionComplete(motor);
 		}
-		else
+		else if (motor[0].currentCount >= (int)(abs(motor->targetCount)/2.0))
 		{
+			rampDownCount = abs((motor->targetCount - motor->currentCount));
+			 if (rampDownCount == 5 && temp == 0)
+			 {
+				 motor[0].newAbsoluteTarget = 70;
+				 motor[0].newCommandAvailable = 1;
+				 temp = 1;
+			 }
+			ramp(rampDownCount);
+			rampingDown = 1;
 			rampingUp = 0;
-			rampingDown = 0;
-			rampUpCount = 0;
-			rampDownCount = 0;
 		}
 	}
 }

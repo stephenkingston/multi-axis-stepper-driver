@@ -49,8 +49,8 @@ typedef struct StepperMotor
 	uint8_t pinNumber;
 	void (*setDirection)(int);
 
-	int absolutePosition;
-	int16_t currentCount;
+	volatile int absolutePosition;
+	volatile int16_t currentCount;
 	volatile int16_t targetCount;
 
 
