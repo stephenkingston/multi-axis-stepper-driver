@@ -61,6 +61,7 @@ typedef struct StepperMotor
 	volatile uint8_t pulseFlag;
 	TIM_HandleTypeDef* timerHandle;
 	volatile float scaleFactor;
+	volatile float estDurationOfMovement;
 
 
 	//For fresh instructions from USB, all of them are zero  otherwise

@@ -61,7 +61,42 @@ TIM_HandleTypeDef htim4;
 
 uint8_t temp = 0;
 
-static const float sine[32] = {
+static const int TIME_CONSTANT[32] = {
+		1000,
+		1999,
+		2993,
+		3981,
+		4959,
+		5926,
+		6877,
+		7811,
+		8726,
+		9618,
+		10485,
+		11325,
+		12136,
+		12916,
+		13661,
+		14371,
+		15044,
+		15677,
+		16269,
+		16818,
+		17323,
+		17782,
+		18195,
+		18560,
+		18876,
+		19142,
+		19358,
+		19523,
+		19636,
+		19698,
+		19725,
+		19735
+};
+
+static const float cosine[32] = {
 		1.0000,
 		0.9986,
 		0.9945,
@@ -107,7 +142,7 @@ static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 void setNextInterruptInterval(StepperMotor* motor);
-void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle);
+void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle, float scaleFactor);
 
 /* USER CODE END PFP */
 
@@ -186,6 +221,9 @@ void motionComplete(StepperMotor* motor)
 	motor->rampingDown = 0;
 	motor->rampUpCount = 0;
 	motor->rampDownCount = 0;
+	motor->estDurationOfMovement = 0;
+
+ 	//HAL_TIM_Base_Stop_IT(motor->timerHandle);
 }
 
 void programInit()
@@ -209,8 +247,11 @@ void programInit()
 	{
 		motionComplete(&motor[i]);
 		motor[i].scaleFactor = 1;
+		motor[i].direction = CLOCKWISE;
 		motor[i].newCommandAvailable = 0;
 		motor[i].absolutePosition = -800;
+		motor[i].pulseFlag = 0;
+		motor[i].estDurationOfMovement = 0;
 	}
 }
 
@@ -223,14 +264,14 @@ void setNextInterruptInterval(StepperMotor* motor)
 		if (motor->currentCount < NO_OF_RAMP_STEPS)
 		{
 			motor->rampUpCount = abs(motor->currentCount);
-			ramp(motor->rampUpCount, motor->timerHandle);
+			ramp(motor->rampUpCount, motor->timerHandle, motor->scaleFactor);
 			motor->rampingUp = ACTIVATED;
 			motor->rampingDown = DEACTIVATED;
 		}
 		else if (motor->targetCount - motor->currentCount < NO_OF_RAMP_STEPS)
 		{
 			motor->rampDownCount = abs(motor->targetCount - motor->currentCount);
-			ramp(motor->rampDownCount, motor->timerHandle);
+			ramp(motor->rampDownCount, motor->timerHandle, motor->scaleFactor);
 			motor->rampingDown = ACTIVATED;
 			motor->rampingUp = DEACTIVATED;
 		}
@@ -244,7 +285,7 @@ void setNextInterruptInterval(StepperMotor* motor)
 		if (motor->currentCount < (int)(abs(motor->targetCount)/2.0))
 		{
 			motor->rampUpCount = abs((motor->currentCount));
-			ramp(motor->rampUpCount, motor->timerHandle);
+			ramp(motor->rampUpCount, motor->timerHandle, motor->scaleFactor);
 			motor->rampingUp = ACTIVATED;
 			motor->rampingDown = DEACTIVATED;
 		}
@@ -262,19 +303,58 @@ void setNextInterruptInterval(StepperMotor* motor)
 			//	 motor->newCommandAvailable = ACTIVATED;
 			//	 temp = 1;
 			// }
-			ramp(motor->rampDownCount, motor->timerHandle);
+			ramp(motor->rampDownCount, motor->timerHandle, motor->scaleFactor);
 			motor->rampingDown = ACTIVATED;
 			motor->rampingUp = DEACTIVATED;
 		}
 	}
 }
 
-void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle)
+void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle, float scaleFactor)
 {
-	uint16_t nextCompareValue = (uint16_t)((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
-			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*sine[rampCount]);
+	uint16_t nextCompareValue = (uint16_t)(((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
+			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*cosine[rampCount])*scaleFactor);
 
 	__HAL_TIM_SET_AUTORELOAD(timerHandle, nextCompareValue);
+}
+
+uint8_t max(volatile int* values)
+{
+	uint8_t max;
+	if (values[0] > values[1])
+		max = 0;
+	else
+		max = 1;
+	if (values[2] > values[max])
+		max = 2;
+
+	return max;
+}
+
+void setScaleFactors()
+{
+	volatile int values[3] = {motor[0].estDurationOfMovement, motor[1].estDurationOfMovement, motor[2].estDurationOfMovement};
+	uint8_t maxMotorIndex = max(&values[0]);
+
+	for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
+	{
+		motor[i].scaleFactor = (float)motor[maxMotorIndex].estDurationOfMovement/(float)motor[i].estDurationOfMovement;
+	}
+}
+
+float getDurationOfUninterruptedMovement(int numOfSteps)
+{
+	float duration = 0;
+	if (numOfSteps > 64)
+	{
+		duration = (2.0 * (float)TIME_CONSTANT[NO_OF_RAMP_STEPS] / 1000) + (((float)numOfSteps - (2 *NO_OF_RAMP_STEPS)) * (float)MIN_INTERVAL);
+	}
+	else
+	{
+		duration = 2.0 * TIME_CONSTANT[numOfSteps/2];
+	}
+
+	return duration;
 }
 
 void runMotor(StepperMotor* motor)
@@ -312,17 +392,30 @@ void configForNewCommand(StepperMotor* motor)
 		//Define motion
 		if (motor->direction == motor->newDirection)
 		{
-			if(motor->rampingDown == 1)
+			if(motor->rampingDown == 1) //seems to work
 			{
+				//Calculate estimated duration of movement
+				int16_t newTarget = abs(motor->newAbsoluteTarget - motor->currentCount) + motor->rampDownCount;
+				motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget)
+												- TIME_CONSTANT[motor->rampDownCount];
+
 				//Stop ramp-down and initiate ramp up as required by the new target
-				motor->targetCount = abs(motor->newAbsoluteTarget - motor->currentCount) + motor->rampDownCount;
+
+				motor->targetCount = newTarget;
 				motor->currentCount = motor->rampDownCount;
 				motor->newCommandAvailable = 0;
 			}
 			else //Seems to work
 			{
-				motor->targetCount = motor->currentCount +
-						abs(motor->absolutePosition - motor->newAbsoluteTarget);
+				int16_t newTarget = motor->currentCount + abs(motor->absolutePosition - motor->newAbsoluteTarget);
+				if (motor->rampingUp == 1)
+					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget) - TIME_CONSTANT[motor->rampUpCount];
+				else if (motor->currentCount != 0)
+					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget) - TIME_CONSTANT[NO_OF_RAMP_STEPS]
+																		- MIN_INTERVAL * (motor->currentCount - NO_OF_RAMP_STEPS);
+				else
+					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget);
+				motor->targetCount = newTarget;
 				//Same direction
 				motor->newCommandAvailable = 0;
 			}
@@ -343,10 +436,24 @@ void configForNewCommand(StepperMotor* motor)
 			}
 			else if (motor->rampingUp == 0 && motor->rampingDown == 0) //seems to work
 			{
-				motor->targetCount = abs(motor->newAbsoluteTarget - motor->absolutePosition);
-				motor->direction = motor->newDirection;
-				motor->setDirection(motor->direction);
-				motor->newCommandAvailable = 0;
+				if (motor->currentCount != 0) //running in the opposite direction
+				{
+					//Start ramp-down sequence
+					motor->targetCount = 2*motor->rampUpCount;
+					motor->currentCount = motor->rampUpCount;
+					motor->rampingDown = 1;
+					motor->rampingUp = 0;
+				}
+				else //stationary
+				{
+					int16_t newTarget = abs(motor->newAbsoluteTarget - motor->absolutePosition);
+					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget);
+
+					motor->targetCount = newTarget;
+					motor->direction = motor->newDirection;
+					motor->setDirection(motor->direction);
+					motor->newCommandAvailable = 0;
+				}
 			}
 		}
 }
@@ -388,9 +495,15 @@ int main(void)
   MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_TIM_Base_Start_IT(&htim2);
-  motor[0].newAbsoluteTarget = 100;
+  motor[0].newAbsoluteTarget = -500;
   motor[0].newCommandAvailable = ACTIVATED;
+
+  motor[1].newAbsoluteTarget = -700;
+  motor[1].newCommandAvailable = ACTIVATED;
+
+  motor[2].newAbsoluteTarget = -600;
+  motor[2].newCommandAvailable = ACTIVATED;
+
 
 
   /* USER CODE END 2 */
@@ -399,15 +512,25 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	 if (motor[0].newCommandAvailable)
-	 {
-		 configForNewCommand(&motor[0]);
-	 }
+	  for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
+	  {
+			 if (motor[i].newCommandAvailable)
+			 {
+				 configForNewCommand(&motor[i]);
+				 if (i == NUM_OF_STEPPER_MOTORS - 1)
+				 {
+					 setScaleFactors();
+				  	 HAL_TIM_Base_Start_IT(&htim2);
+				  	 HAL_TIM_Base_Start_IT(&htim3);
+				  	 HAL_TIM_Base_Start_IT(&htim4);
+				 }
+			 }
 
-	 if (motor[0].pulseFlag == 1)
-	 {
-		 runMotor(&motor[0]);
-	 }
+			 if (motor[i].pulseFlag == 1)
+			 {
+				 runMotor(&motor[i]);
+			 }
+	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -482,7 +605,7 @@ static void MX_TIM2_Init(void)
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 286;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
@@ -527,7 +650,7 @@ static void MX_TIM3_Init(void)
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = 286;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
     Error_Handler();
@@ -572,7 +695,7 @@ static void MX_TIM4_Init(void)
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim4.Init.Period = 286;
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
   {
     Error_Handler();

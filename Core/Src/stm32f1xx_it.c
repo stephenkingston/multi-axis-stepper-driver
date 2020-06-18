@@ -226,7 +226,9 @@ void TIM2_IRQHandler(void)
   /* USER CODE BEGIN TIM2_IRQn 1 */
   //
   if (motor[0].currentCount < motor[0].targetCount)
+  {
 	  motor[0].pulseFlag = 1;
+  }
 
   /* USER CODE END TIM2_IRQn 1 */
 }
@@ -242,6 +244,10 @@ void TIM3_IRQHandler(void)
   HAL_TIM_IRQHandler(&htim3);
   /* USER CODE BEGIN TIM3_IRQn 1 */
 
+  if (motor[1].currentCount < motor[1].targetCount)
+  {
+	  motor[1].pulseFlag = 1;
+  }
   /* USER CODE END TIM3_IRQn 1 */
 }
 
@@ -256,6 +262,10 @@ void TIM4_IRQHandler(void)
   HAL_TIM_IRQHandler(&htim4);
   /* USER CODE BEGIN TIM4_IRQn 1 */
 
+  if (motor[2].currentCount != motor[2].targetCount)
+  {
+	  motor[2].pulseFlag = 1;
+  }
   /* USER CODE END TIM4_IRQn 1 */
 }
 
