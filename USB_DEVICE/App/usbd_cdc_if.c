@@ -24,6 +24,8 @@
 
 /* USER CODE BEGIN INCLUDE */
 
+#include "main.h"
+
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -32,6 +34,7 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
+extern StepperMotor motor[3];
 
 /* USER CODE END PV */
 
@@ -99,7 +102,8 @@ uint8_t UserRxBufferFS[APP_RX_DATA_SIZE];
 uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
-
+uint8_t buffer[7];
+uint8_t receivedData[6];
 /* USER CODE END PRIVATE_VARIABLES */
 
 /**
@@ -223,10 +227,24 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
   /* 6      | bDataBits  |   1   | Number Data bits (5, 6, 7, 8 or 16).          */
   /*******************************************************************************/
     case CDC_SET_LINE_CODING:
+    	/*buffer[0] = pbuf[0];
+    	buffer[1] = pbuf[1];
+    	buffer[2] = pbuf[2];
+    	buffer[3] = pbuf[3];
+    	buffer[4] = pbuf[4];
+    	buffer[5] = pbuf[5];
+    	buffer[6] = pbuf[6];*/
 
     break;
 
     case CDC_GET_LINE_CODING:
+    	/*pbuf[0] = buffer[0];
+    	pbuf[1] = buffer[1];
+    	pbuf[2] = buffer[2];
+    	pbuf[3] = buffer[3];
+    	pbuf[4] = buffer[4];
+    	pbuf[5] = buffer[5];
+    	pbuf[6] = buffer[6];*/
 
     break;
 
@@ -265,6 +283,21 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
   /* USER CODE BEGIN 6 */
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
+
+  for (uint8_t i = 0; i < *Len; i++)
+  {
+	  receivedData[i] = Buf[i];
+  }
+
+  motor[0].newAbsoluteTarget = (receivedData[0] << 8) | (receivedData[1]);
+  motor[1].newAbsoluteTarget = (receivedData[2] << 8) | (receivedData[3]);
+  motor[2].newAbsoluteTarget = (receivedData[4] << 8) | (receivedData[5]);
+
+  motor[0].newCommandAvailable = 1;
+  motor[1].newCommandAvailable = 1;
+  motor[2].newCommandAvailable = 1;
+
+  CDC_Transmit_FS(&receivedData, 6);
   return (USBD_OK);
   /* USER CODE END 6 */
 }

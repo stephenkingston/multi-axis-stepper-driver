@@ -59,8 +59,6 @@ TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
 
-uint8_t temp = 0;
-
 static const int TIME_CONSTANT[32] = {
 		1000,
 		1999,
@@ -143,6 +141,7 @@ static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 void setNextInterruptInterval(StepperMotor* motor);
 void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle, volatile float scaleFactor);
+uint8_t temp = 1;
 
 /* USER CODE END PFP */
 
@@ -247,7 +246,7 @@ void programInit()
 		motor[i].scaleFactor = 1;
 		motor[i].direction = CLOCKWISE;
 		motor[i].newCommandAvailable = 0;
-		motor[i].absolutePosition = -800;
+		motor[i].absolutePosition = 0;
 		motor[i].pulseFlag = 0;
 		motor[i].estDurationOfMovement = 0;
 	}
@@ -263,6 +262,7 @@ void setNextInterruptInterval(StepperMotor* motor)
 		{
 			motor->rampUpCount = abs(motor->currentCount);
 			ramp(motor->rampUpCount, motor->timerHandle, motor->scaleFactor);
+
 			motor->rampingUp = ACTIVATED;
 			motor->rampingDown = DEACTIVATED;
 		}
@@ -294,13 +294,6 @@ void setNextInterruptInterval(StepperMotor* motor)
 		else if (motor->currentCount >= (int)(abs(motor->targetCount)/2.0))
 		{
 			motor->rampDownCount = abs((motor->targetCount - motor->currentCount));
-			//Test case
-			// if (motor->rampDownCount == 5 && temp == 0)
-			// {
-			//	 motor->newAbsoluteTarget = 70;
-			//	 motor->newCommandAvailable = ACTIVATED;
-			//	 temp = 1;
-			// }
 			ramp(motor->rampDownCount, motor->timerHandle, motor->scaleFactor);
 			motor->rampingDown = ACTIVATED;
 			motor->rampingUp = DEACTIVATED;
@@ -331,12 +324,14 @@ uint8_t max(volatile int* values)
 
 void setScaleFactors()
 {
+
 	volatile int values[3] = {motor[0].estDurationOfMovement, motor[1].estDurationOfMovement, motor[2].estDurationOfMovement};
 	uint8_t maxMotorIndex = max(&values[0]);
 
 	for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
 	{
-		motor[i].scaleFactor = (float)motor[maxMotorIndex].estDurationOfMovement/(float)motor[i].estDurationOfMovement;
+		if (motor[i].estDurationOfMovement != 0)
+			motor[i].scaleFactor = (float)motor[maxMotorIndex].estDurationOfMovement/(float)motor[i].estDurationOfMovement;
 	}
 	MX_TIM2_Init();
 	MX_TIM3_Init();
@@ -494,15 +489,16 @@ int main(void)
 
   /* USER CODE BEGIN 2 */
 
-  motor[0].newAbsoluteTarget = -850;
+  /*
+  motor[0].newAbsoluteTarget = 30;
   motor[0].newCommandAvailable = ACTIVATED;
 
-  motor[1].newAbsoluteTarget = -825;
+  motor[1].newAbsoluteTarget = 60;
   motor[1].newCommandAvailable = ACTIVATED;
 
-  motor[2].newAbsoluteTarget = -730;
+  motor[2].newAbsoluteTarget = 100;
   motor[2].newCommandAvailable = ACTIVATED;
-
+  */
 
 
   /* USER CODE END 2 */
@@ -531,6 +527,14 @@ int main(void)
 			 {
 				 runMotor(&motor[i]);
 			 }
+
+				//Test case
+			/*if (motor[1].rampUpCount == 5 && temp == 1)
+			{
+				 motor[1].newAbsoluteTarget = -825;
+				 motor[1].newCommandAvailable = ACTIVATED;
+				 temp = 0;
+			}*/
 	  }
     /* USER CODE END WHILE */
 
