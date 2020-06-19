@@ -142,7 +142,7 @@ static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 void setNextInterruptInterval(StepperMotor* motor);
-void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle, float scaleFactor);
+void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle, volatile float scaleFactor);
 
 /* USER CODE END PFP */
 
@@ -222,8 +222,6 @@ void motionComplete(StepperMotor* motor)
 	motor->rampUpCount = 0;
 	motor->rampDownCount = 0;
 	motor->estDurationOfMovement = 0;
-
- 	//HAL_TIM_Base_Stop_IT(motor->timerHandle);
 }
 
 void programInit()
@@ -310,7 +308,7 @@ void setNextInterruptInterval(StepperMotor* motor)
 	}
 }
 
-void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle, float scaleFactor)
+void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle, volatile float scaleFactor)
 {
 	uint16_t nextCompareValue = (uint16_t)(((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
 			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*cosine[rampCount])*scaleFactor);
@@ -340,6 +338,9 @@ void setScaleFactors()
 	{
 		motor[i].scaleFactor = (float)motor[maxMotorIndex].estDurationOfMovement/(float)motor[i].estDurationOfMovement;
 	}
+	MX_TIM2_Init();
+	MX_TIM3_Init();
+	MX_TIM4_Init();
 }
 
 float getDurationOfUninterruptedMovement(int numOfSteps)
@@ -347,11 +348,11 @@ float getDurationOfUninterruptedMovement(int numOfSteps)
 	float duration = 0;
 	if (numOfSteps > 64)
 	{
-		duration = (2.0 * (float)TIME_CONSTANT[NO_OF_RAMP_STEPS] / 1000) + (((float)numOfSteps - (2 *NO_OF_RAMP_STEPS)) * (float)MIN_INTERVAL);
+		duration = (2.0 * (float)TIME_CONSTANT[NO_OF_RAMP_STEPS - 1] / 1000.0) + (((float)numOfSteps - (2 *NO_OF_RAMP_STEPS)) * (float)MIN_INTERVAL/1000.0);
 	}
 	else
 	{
-		duration = 2.0 * TIME_CONSTANT[numOfSteps/2];
+		duration = 2.0 * TIME_CONSTANT[(numOfSteps/2) - 1] / 1000;
 	}
 
 	return duration;
@@ -411,7 +412,7 @@ void configForNewCommand(StepperMotor* motor)
 				if (motor->rampingUp == 1)
 					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget) - TIME_CONSTANT[motor->rampUpCount];
 				else if (motor->currentCount != 0)
-					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget) - TIME_CONSTANT[NO_OF_RAMP_STEPS]
+					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget) - TIME_CONSTANT[NO_OF_RAMP_STEPS - 1]
 																		- MIN_INTERVAL * (motor->currentCount - NO_OF_RAMP_STEPS);
 				else
 					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget);
@@ -490,18 +491,16 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USB_DEVICE_Init();
-  MX_TIM2_Init();
-  MX_TIM3_Init();
-  MX_TIM4_Init();
+
   /* USER CODE BEGIN 2 */
 
-  motor[0].newAbsoluteTarget = -500;
+  motor[0].newAbsoluteTarget = -850;
   motor[0].newCommandAvailable = ACTIVATED;
 
-  motor[1].newAbsoluteTarget = -700;
+  motor[1].newAbsoluteTarget = -825;
   motor[1].newCommandAvailable = ACTIVATED;
 
-  motor[2].newAbsoluteTarget = -600;
+  motor[2].newAbsoluteTarget = -730;
   motor[2].newCommandAvailable = ACTIVATED;
 
 
@@ -512,6 +511,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
 	  for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
 	  {
 			 if (motor[i].newCommandAvailable)
@@ -523,6 +523,7 @@ int main(void)
 				  	 HAL_TIM_Base_Start_IT(&htim2);
 				  	 HAL_TIM_Base_Start_IT(&htim3);
 				  	 HAL_TIM_Base_Start_IT(&htim4);
+				  	 break;
 				 }
 			 }
 
@@ -603,7 +604,8 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 256;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 286;
+  htim2.Init.Period = (uint16_t)(((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
+			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*cosine[1])*motor[0].scaleFactor);
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -648,7 +650,8 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 256;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 286;
+  htim3.Init.Period = (uint16_t)(((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
+			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*cosine[1])*motor[1].scaleFactor);
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -693,7 +696,8 @@ static void MX_TIM4_Init(void)
   htim4.Instance = TIM4;
   htim4.Init.Prescaler = 256;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim4.Init.Period = 286;
+  htim4.Init.Period = (uint16_t)(((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
+			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*cosine[1])*motor[2].scaleFactor);
   htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
