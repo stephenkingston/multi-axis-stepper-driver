@@ -38,7 +38,7 @@ extern "C" {
 /* Exported types ------------------------------------------------------------*/
 /* USER CODE BEGIN ET */
 #define PRESCALER 256.0
-extern bool timer1flag;
+volatile uint8_t newCommandAvailable;
 
 typedef struct StepperMotor
 {
@@ -67,7 +67,7 @@ typedef struct StepperMotor
 	//For fresh instructions from USB, all of them are zero  otherwise
 	volatile int8_t newDirection;
 	volatile int16_t newAbsoluteTarget;
-	volatile uint8_t newCommandAvailable;
+	volatile int16_t newAbsoluteTargetUSB;
 
 }StepperMotor;
 

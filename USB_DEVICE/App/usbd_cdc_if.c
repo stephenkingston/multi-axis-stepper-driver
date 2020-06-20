@@ -34,7 +34,6 @@
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-extern StepperMotor motor[3];
 
 /* USER CODE END PV */
 
@@ -103,7 +102,7 @@ uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
 uint8_t buffer[7];
-uint8_t receivedData[6];
+uint8_t receivedData[12];
 /* USER CODE END PRIVATE_VARIABLES */
 
 /**
@@ -289,15 +288,13 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 	  receivedData[i] = Buf[i];
   }
 
-  motor[0].newAbsoluteTarget = (receivedData[0] << 8) | (receivedData[1]);
-  motor[1].newAbsoluteTarget = (receivedData[2] << 8) | (receivedData[3]);
-  motor[2].newAbsoluteTarget = (receivedData[4] << 8) | (receivedData[5]);
+  motor[0].newAbsoluteTargetUSB = (receivedData[0] << 8) | (receivedData[1]);
+  motor[1].newAbsoluteTargetUSB = (receivedData[2] << 8) | (receivedData[3]);
+  motor[2].newAbsoluteTargetUSB = (receivedData[4] << 8) | (receivedData[5]);
 
-  motor[0].newCommandAvailable = 1;
-  motor[1].newCommandAvailable = 1;
-  motor[2].newCommandAvailable = 1;
+  newCommandAvailable = 1;
 
-  CDC_Transmit_FS(&receivedData, 6);
+  CDC_Transmit_FS(&receivedData[0], 6);
   return (USBD_OK);
   /* USER CODE END 6 */
 }

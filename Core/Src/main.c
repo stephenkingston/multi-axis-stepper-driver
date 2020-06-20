@@ -129,6 +129,7 @@ static const float cosine[32] = {
 		0.0000
 };
 
+volatile uint8_t previousMotionComplete = 1;
 
 /* USER CODE END PV */
 
@@ -141,7 +142,8 @@ static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 void setNextInterruptInterval(StepperMotor* motor);
 void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle, volatile float scaleFactor);
-uint8_t temp = 1;
+
+uint8_t temp = 0;
 
 /* USER CODE END PFP */
 
@@ -240,12 +242,15 @@ void programInit()
 	motor[1].sendPulse = sendPulseS1;
 	motor[2].sendPulse = sendPulseS2;
 
+	newCommandAvailable = 0;
+	previousMotionComplete = 1;
+
 	for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
 	{
 		motionComplete(&motor[i]);
 		motor[i].scaleFactor = 1;
 		motor[i].direction = CLOCKWISE;
-		motor[i].newCommandAvailable = 0;
+
 		motor[i].absolutePosition = 0;
 		motor[i].pulseFlag = 0;
 		motor[i].estDurationOfMovement = 0;
@@ -371,87 +376,35 @@ void runMotor(StepperMotor* motor)
 	 }
 }
 
+void copyNewCommands()
+{
+	for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
+	{
+		motor[i].newAbsoluteTarget = motor[i].newAbsoluteTargetUSB;
+	}
+}
+
 void configForNewCommand(StepperMotor* motor)
 {
 		//Set Direction
 		if (motor->absolutePosition > motor->newAbsoluteTarget)
 		{
 			motor->newDirection = CLOCKWISE;
+			motor->direction = CLOCKWISE;
 			motor->setDirection(CLOCKWISE);
 		}
 		else if (motor->absolutePosition < motor->newAbsoluteTarget)
 		{
 			motor->newDirection = ANTICLOCKWISE;
+			motor->direction = ANTICLOCKWISE;
 			motor->setDirection(ANTICLOCKWISE);
 		}
 
 		//Define motion
-		if (motor->direction == motor->newDirection)
-		{
-			if(motor->rampingDown == 1) //seems to work
-			{
-				//Calculate estimated duration of movement
-				int16_t newTarget = abs(motor->newAbsoluteTarget - motor->currentCount) + motor->rampDownCount;
-				motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget)
-												- TIME_CONSTANT[motor->rampDownCount];
 
-				//Stop ramp-down and initiate ramp up as required by the new target
-
-				motor->targetCount = newTarget;
-				motor->currentCount = motor->rampDownCount;
-				motor->newCommandAvailable = 0;
-			}
-			else //Seems to work
-			{
-				int16_t newTarget = motor->currentCount + abs(motor->absolutePosition - motor->newAbsoluteTarget);
-				if (motor->rampingUp == 1)
-					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget) - TIME_CONSTANT[motor->rampUpCount];
-				else if (motor->currentCount != 0)
-					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget) - TIME_CONSTANT[NO_OF_RAMP_STEPS - 1]
-																		- MIN_INTERVAL * (motor->currentCount - NO_OF_RAMP_STEPS);
-				else
-					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget);
-				motor->targetCount = newTarget;
-				//Same direction
-				motor->newCommandAvailable = 0;
-			}
-		}
-		else
-		{
-			if(motor->rampingDown == 1) //works, obviously
-			{
-				//Ignore and allow the ramp-down to continue
-			}
-			if (motor->rampingUp == 1) //seems to work
-			{
-				//Start ramp-down sequence with the same number of steps that has currently been ramped up
-				motor->targetCount = 2*motor->rampUpCount;
-				motor->currentCount = motor->rampUpCount;
-				motor->rampingDown = 1;
-				motor->rampingUp = 0;
-			}
-			else if (motor->rampingUp == 0 && motor->rampingDown == 0) //seems to work
-			{
-				if (motor->currentCount != 0) //running in the opposite direction
-				{
-					//Start ramp-down sequence
-					motor->targetCount = 2*motor->rampUpCount;
-					motor->currentCount = motor->rampUpCount;
-					motor->rampingDown = 1;
-					motor->rampingUp = 0;
-				}
-				else //stationary
-				{
-					int16_t newTarget = abs(motor->newAbsoluteTarget - motor->absolutePosition);
-					motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget);
-
-					motor->targetCount = newTarget;
-					motor->direction = motor->newDirection;
-					motor->setDirection(motor->direction);
-					motor->newCommandAvailable = 0;
-				}
-			}
-		}
+		int16_t newTarget = abs(motor->absolutePosition - motor->newAbsoluteTarget);
+		motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget);
+		motor->targetCount = newTarget;
 }
 
 /* USER CODE END 0 */
@@ -489,17 +442,13 @@ int main(void)
 
   /* USER CODE BEGIN 2 */
 
-  /*
-  motor[0].newAbsoluteTarget = 30;
-  motor[0].newCommandAvailable = ACTIVATED;
 
-  motor[1].newAbsoluteTarget = 60;
-  motor[1].newCommandAvailable = ACTIVATED;
+  motor[0].newAbsoluteTargetUSB = 46;
+  motor[1].newAbsoluteTargetUSB= 40;
+  motor[2].newAbsoluteTargetUSB = 57;
 
-  motor[2].newAbsoluteTarget = 100;
-  motor[2].newCommandAvailable = ACTIVATED;
-  */
 
+  newCommandAvailable = ACTIVATED;
 
   /* USER CODE END 2 */
 
@@ -507,35 +456,44 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
-	  for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
+	  if (newCommandAvailable == 1 && previousMotionComplete == 1)
 	  {
-			 if (motor[i].newCommandAvailable)
-			 {
-				 configForNewCommand(&motor[i]);
-				 if (i == NUM_OF_STEPPER_MOTORS - 1)
-				 {
-					 setScaleFactors();
-				  	 HAL_TIM_Base_Start_IT(&htim2);
-				  	 HAL_TIM_Base_Start_IT(&htim3);
-				  	 HAL_TIM_Base_Start_IT(&htim4);
-				  	 break;
-				 }
-			 }
+		  	newCommandAvailable = DEACTIVATED;
+		  	previousMotionComplete = DEACTIVATED;
 
+		  	copyNewCommands();
+		  	for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
+		  	{
+		  		configForNewCommand(&motor[i]);
+		  	}
+
+			setScaleFactors();
+			HAL_TIM_Base_Start_IT(&htim2);
+			HAL_TIM_Base_Start_IT(&htim3);
+			HAL_TIM_Base_Start_IT(&htim4);
+
+      }
+
+		for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
+		{
 			 if (motor[i].pulseFlag == 1)
 			 {
 				 runMotor(&motor[i]);
 			 }
+		}
 
-				//Test case
-			/*if (motor[1].rampUpCount == 5 && temp == 1)
-			{
-				 motor[1].newAbsoluteTarget = -825;
-				 motor[1].newCommandAvailable = ACTIVATED;
-				 temp = 0;
-			}*/
-	  }
+		if (motor[0].targetCount == 0 && motor[1].targetCount == 0 && motor[2].targetCount == 0)
+			previousMotionComplete = 1;
+
+		if (previousMotionComplete == 1 && temp == 0)
+		{
+			  motor[0].newAbsoluteTargetUSB = 30;
+			  motor[1].newAbsoluteTargetUSB= 30;
+			  motor[2].newAbsoluteTargetUSB = -10;
+
+			 newCommandAvailable = ACTIVATED;
+			 temp = 1;
+		}
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
