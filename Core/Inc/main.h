@@ -44,7 +44,7 @@ typedef struct StepperMotor
 {
 	void (*sendPulse)();
 	void (*setDirection)(int);
-	volatile uint8_t direction;
+	volatile int8_t direction;
 
 	volatile int absolutePosition;
 	volatile int16_t currentCount;

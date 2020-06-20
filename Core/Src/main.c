@@ -485,15 +485,15 @@ int main(void)
 		if (motor[0].targetCount == 0 && motor[1].targetCount == 0 && motor[2].targetCount == 0)
 			previousMotionComplete = 1;
 
-		if (previousMotionComplete == 1 && temp == 0)
+		/*if (previousMotionComplete == 1 && temp == 0)
 		{
 			  motor[0].newAbsoluteTargetUSB = 30;
-			  motor[1].newAbsoluteTargetUSB= 30;
+			  motor[1].newAbsoluteTargetUSB = 30;
 			  motor[2].newAbsoluteTargetUSB = -10;
 
 			 newCommandAvailable = ACTIVATED;
 			 temp = 1;
-		}
+		}*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
