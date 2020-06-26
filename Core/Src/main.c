@@ -401,31 +401,44 @@ void copyNewCommands()
 
 void configForNewCommand(StepperMotor* motor)
 {
-		//Set Direction
-		if (motor->absolutePosition > motor->newAbsoluteTarget)
-		{
-			motor->newDirection = CLOCKWISE;
-			motor->direction = CLOCKWISE;
-			motor->setDirection(CLOCKWISE);
-		}
-		else if (motor->absolutePosition < motor->newAbsoluteTarget)
-		{
-			motor->newDirection = ANTICLOCKWISE;
-			motor->direction = ANTICLOCKWISE;
-			motor->setDirection(ANTICLOCKWISE);
-		}
-
 		//Define motion
-		//Resets motor to default position if requested position is outside limits
-		if ((motor->direction) * abs(motor->absolutePosition - motor->newAbsoluteTarget) +  motor->absolutePosition > ABSOLUTE_UPPER_LIMIT
-				|| (motor->direction) * abs(motor->absolutePosition - motor->newAbsoluteTarget) +  motor->absolutePosition < ABSOLUTE_LOWER_LIMIT)
-		{
-			motor->newAbsoluteTarget = (ABSOLUTE_UPPER_LIMIT/2) + 1;
-		}
 
 		int16_t newTarget = abs(motor->absolutePosition - motor->newAbsoluteTarget);
 		motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget);
 		motor->targetCount = newTarget;
+}
+
+uint8_t performDataValidation()
+{
+	//Prevents motors from moving if incoming data is invalid or outside limits set by ABSOLUTE_UPPER_LIMIT and ABSOLUTE_LOWER_LIMIT
+	volatile uint8_t valid;
+	valid = 1;
+
+	//Set Direction
+	for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
+	{
+		if (motor[i].absolutePosition > motor[i].newAbsoluteTarget)
+		{
+			motor[i].newDirection = CLOCKWISE;
+			motor[i].direction = CLOCKWISE;
+			motor[i].setDirection(CLOCKWISE);
+		}
+		else if (motor->absolutePosition < motor->newAbsoluteTarget)
+		{
+			motor[i].newDirection = ANTICLOCKWISE;
+			motor[i].direction = ANTICLOCKWISE;
+			motor[i].setDirection(ANTICLOCKWISE);
+		}
+
+		if ((motor[i].direction) * abs(motor[i].absolutePosition - motor[i].newAbsoluteTarget) +  motor[i].absolutePosition > ABSOLUTE_UPPER_LIMIT
+				|| (motor[i].direction) * abs(motor[i].absolutePosition - motor[i].newAbsoluteTarget) +  motor[i].absolutePosition < ABSOLUTE_LOWER_LIMIT)
+		{
+			valid = 0;
+			break;
+		}
+	}
+
+	return valid;
 }
 
 /* USER CODE END 0 */
@@ -463,14 +476,6 @@ int main(void)
 
   /* USER CODE BEGIN 2 */
 
-
-  /*motor[0].newAbsoluteTargetUSB = 46;
-  motor[1].newAbsoluteTargetUSB= 40;
-  motor[2].newAbsoluteTargetUSB = 57;
-
-
-  newCommandAvailable = ACTIVATED;*/
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -483,16 +488,22 @@ int main(void)
 		  	previousMotionComplete = DEACTIVATED;
 
 		  	copyNewCommands();
-		  	for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
+
+		  	//Perform check to ensure incoming data is valid
+		  	uint8_t check = performDataValidation();
+		  	if (check == 1)
 		  	{
-		  		configForNewCommand(&motor[i]);
+			  	for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
+			  	{
+			  		configForNewCommand(&motor[i]);
+			  	}
+
+				setScaleFactors();
+				HAL_TIM_Base_Start_IT(&htim2);
+				HAL_TIM_Base_Start_IT(&htim3);
+				HAL_TIM_Base_Start_IT(&htim4);
+
 		  	}
-
-			setScaleFactors();
-			HAL_TIM_Base_Start_IT(&htim2);
-			HAL_TIM_Base_Start_IT(&htim3);
-			HAL_TIM_Base_Start_IT(&htim4);
-
       }
 
 		for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
@@ -505,7 +516,7 @@ int main(void)
 
 		if (motor[0].targetCount == 0 && motor[1].targetCount == 0 && motor[2].targetCount == 0)
 		{
-			previousMotionComplete = 1;
+			previousMotionComplete = ACTIVATED;
 		}
 
 
