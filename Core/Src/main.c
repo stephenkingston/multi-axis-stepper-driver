@@ -34,12 +34,16 @@
 #define NO_OF_RAMP_STEPS 32
 #define CLOCKWISE -1
 #define ANTICLOCKWISE 1
-#define MIN_INTERVAL 15.0
+#define MIN_INTERVAL 100.0
 #define MAX_INTERVAL 1000.0
 #define F_CPU 72000000UL
 #define ACTIVATED 1
 #define DEACTIVATED 0
 #define NUM_OF_STEPPER_MOTORS 3
+
+#define ABSOLUTE_UPPER_LIMIT 533 //30 degrees on both sides
+#define ABSOLUTE_LOWER_LIMIT 0
+#define INITIAL_POSITION 267 //(ABSOLUTE_UPPER_LIMIT / 2) + 1
 
 /* USER CODE END PTD */
 
@@ -251,7 +255,7 @@ void programInit()
 		motor[i].scaleFactor = 1;
 		motor[i].direction = CLOCKWISE;
 
-		motor[i].absolutePosition = 0;
+		motor[i].absolutePosition = INITIAL_POSITION;
 		motor[i].pulseFlag = 0;
 		motor[i].estDurationOfMovement = 0;
 	}
@@ -333,10 +337,21 @@ void setScaleFactors()
 	volatile int values[3] = {motor[0].estDurationOfMovement, motor[1].estDurationOfMovement, motor[2].estDurationOfMovement};
 	uint8_t maxMotorIndex = max(&values[0]);
 
+	/*
+	 * Perform check to ensure that Timer Compare Register does not overflow after scaling.
+	 * Disables scaling in such a scenario - likely when scaling factor is too large -
+	 * if 65000 < Initial Period * ScalingFactor
+	 */
+
 	for (uint8_t i = 0; i < NUM_OF_STEPPER_MOTORS; i++)
 	{
 		if (motor[i].estDurationOfMovement != 0)
+		{
 			motor[i].scaleFactor = (float)motor[maxMotorIndex].estDurationOfMovement/(float)motor[i].estDurationOfMovement;
+
+			if ((MAX_INTERVAL/1000000.0)*(F_CPU/PRESCALER)*motor[i].scaleFactor > 65000)
+				motor[i].scaleFactor = 1;
+		}
 	}
 	MX_TIM2_Init();
 	MX_TIM3_Init();
@@ -401,6 +416,12 @@ void configForNewCommand(StepperMotor* motor)
 		}
 
 		//Define motion
+		//Resets motor to default position if requested position is outside limits
+		if ((motor->direction) * abs(motor->absolutePosition - motor->newAbsoluteTarget) +  motor->absolutePosition > ABSOLUTE_UPPER_LIMIT
+				|| (motor->direction) * abs(motor->absolutePosition - motor->newAbsoluteTarget) +  motor->absolutePosition < ABSOLUTE_LOWER_LIMIT)
+		{
+			motor->newAbsoluteTarget = (ABSOLUTE_UPPER_LIMIT/2) + 1;
+		}
 
 		int16_t newTarget = abs(motor->absolutePosition - motor->newAbsoluteTarget);
 		motor->estDurationOfMovement = getDurationOfUninterruptedMovement(newTarget);
@@ -443,12 +464,12 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
 
-  motor[0].newAbsoluteTargetUSB = 46;
+  /*motor[0].newAbsoluteTargetUSB = 46;
   motor[1].newAbsoluteTargetUSB= 40;
   motor[2].newAbsoluteTargetUSB = 57;
 
 
-  newCommandAvailable = ACTIVATED;
+  newCommandAvailable = ACTIVATED;*/
 
   /* USER CODE END 2 */
 
@@ -483,7 +504,10 @@ int main(void)
 		}
 
 		if (motor[0].targetCount == 0 && motor[1].targetCount == 0 && motor[2].targetCount == 0)
+		{
 			previousMotionComplete = 1;
+		}
+
 
 		/*if (previousMotionComplete == 1 && temp == 0)
 		{
@@ -564,7 +588,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 256;
+  htim2.Init.Prescaler = PRESCALER;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = (uint16_t)(((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
 			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*cosine[1])*motor[0].scaleFactor);
@@ -610,7 +634,7 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 1 */
   htim3.Instance = TIM3;
-  htim3.Init.Prescaler = 256;
+  htim3.Init.Prescaler = PRESCALER;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim3.Init.Period = (uint16_t)(((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
 			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*cosine[1])*motor[1].scaleFactor);
@@ -656,7 +680,7 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 1 */
   htim4.Instance = TIM4;
-  htim4.Init.Prescaler = 256;
+  htim4.Init.Prescaler = PRESCALER;
   htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim4.Init.Period = (uint16_t)(((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
 			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*cosine[1])*motor[2].scaleFactor);
