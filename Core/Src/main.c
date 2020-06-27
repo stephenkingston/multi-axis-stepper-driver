@@ -31,7 +31,7 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-#define NO_OF_RAMP_STEPS 32
+#define NO_OF_RAMP_STEPS 64
 #define CLOCKWISE -1
 #define ANTICLOCKWISE 1
 #define MIN_INTERVAL 100.0
@@ -63,77 +63,142 @@ TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN PV */
 
-static const int TIME_CONSTANT[32] = {
+static const int TIME_CONSTANT[NO_OF_RAMP_STEPS] = {
 		1000,
 		1999,
-		2993,
-		3981,
-		4959,
-		5926,
-		6877,
-		7811,
-		8726,
-		9618,
-		10485,
-		11325,
-		12136,
-		12916,
-		13661,
-		14371,
-		15044,
-		15677,
-		16269,
-		16818,
-		17323,
-		17782,
-		18195,
-		18560,
-		18876,
-		19142,
-		19358,
-		19523,
-		19636,
-		19698,
-		19725,
-		19735
+		2996,
+		3992,
+		4985,
+		5975,
+		6962,
+		7945,
+		8923,
+		9896,
+		10863,
+		11825,
+		12779,
+		13726,
+		14666,
+		15598,
+		16520,
+		17434,
+		18338,
+		19232,
+		20115,
+		20987,
+		21847,
+		22695,
+		23531,
+		24354,
+		25163,
+		25959,
+		26741,
+		27507,
+		28259,
+		28996,
+		29716,
+		30421,
+		31108,
+		31779,
+		32433,
+		33069,
+		33687,
+		34287,
+		34869,
+		35432,
+		35975,
+		36499,
+		37004,
+		37489,
+		37954,
+		38398,
+		38822,
+		39225,
+		39607,
+		39969,
+		40309,
+		40627,
+		40925,
+		41200,
+		41454,
+		41686,
+		41896,
+		42084,
+		42251,
+		42395,
+		42517,
+		42617
 };
 
-static const float cosine[32] = {
-		1.0000,
-		0.9986,
-		0.9945,
-		0.9877,
-		0.9781,
-		0.9659,
-		0.9510,
-		0.9336,
-		0.9135,
-		0.8910,
-		0.8660,
-		0.8387,
-		0.8090,
-		0.7771,
-		0.7431,
+static const float cosine[NO_OF_RAMP_STEPS] = {
+		0.9997,
+		0.9988,
+		0.9973,
+		0.9952,
+		0.9925,
+		0.9892,
+		0.9853,
+		0.9808,
+		0.9757,
+		0.97,
+		0.9638,
+		0.9569,
+		0.9495,
+		0.9415,
+		0.933,
+		0.9239,
+		0.9142,
+		0.904,
+		0.8932,
+		0.8819,
+		0.8701,
+		0.8577,
+		0.8448,
+		0.8315,
+		0.8176,
+		0.8032,
+		0.7883,
+		0.773,
+		0.7572,
+		0.7409,
+		0.7242,
 		0.7071,
-		0.6691,
-		0.6293,
-		0.5878,
-		0.5446,
-		0.5000,
-		0.4540,
-		0.4067,
-		0.3584,
-		0.3090,
-		0.2588,
-		0.2079,
-		0.1564,
-		0.1045,
-		0.0523,
-		0.0175,
-		0.0000
+		0.6895,
+		0.6715,
+		0.6532,
+		0.6344,
+		0.6152,
+		0.5957,
+		0.5758,
+		0.5556,
+		0.535,
+		0.5141,
+		0.4929,
+		0.4714,
+		0.4496,
+		0.4275,
+		0.4052,
+		0.3827,
+		0.3599,
+		0.3369,
+		0.3137,
+		0.2903,
+		0.2667,
+		0.243,
+		0.2191,
+		0.1951,
+		0.171,
+		0.1467,
+		0.1224,
+		0.098,
+		0.0736,
+		0.0491,
+		0.0245,
+		0
 };
 
 volatile uint8_t previousMotionComplete = 1;
+volatile uint8_t speedFactor = 1;
 
 /* USER CODE END PV */
 
@@ -146,8 +211,6 @@ static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 void setNextInterruptInterval(StepperMotor* motor);
 void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle, volatile float scaleFactor);
-
-uint8_t temp = 0;
 
 /* USER CODE END PFP */
 
@@ -313,7 +376,7 @@ void setNextInterruptInterval(StepperMotor* motor)
 void ramp(uint8_t rampCount, TIM_HandleTypeDef* timerHandle, volatile float scaleFactor)
 {
 	uint16_t nextCompareValue = (uint16_t)(((MIN_INTERVAL/1000000.0)*(F_CPU/PRESCALER) +
-			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*cosine[rampCount])*scaleFactor);
+			((MAX_INTERVAL - MIN_INTERVAL)/1000000.0)*(F_CPU/PRESCALER)*cosine[rampCount])*scaleFactor*speedFactor);
 
 	__HAL_TIM_SET_AUTORELOAD(timerHandle, nextCompareValue);
 }

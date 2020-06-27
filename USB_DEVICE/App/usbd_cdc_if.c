@@ -103,6 +103,7 @@ uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 /* USER CODE BEGIN PRIVATE_VARIABLES */
 uint8_t buffer[7];
 uint8_t receivedData[12];
+volatile extern uint8_t speedFactor;
 /* USER CODE END PRIVATE_VARIABLES */
 
 /**
@@ -291,6 +292,8 @@ static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
   motor[0].newAbsoluteTargetUSB = (receivedData[0] << 8) | (receivedData[1]);
   motor[1].newAbsoluteTargetUSB = (receivedData[2] << 8) | (receivedData[3]);
   motor[2].newAbsoluteTargetUSB = (receivedData[4] << 8) | (receivedData[5]);
+  if (receivedData[6] > 0 && receivedData[6] < 255)
+	  speedFactor = receivedData[6];
 
   newCommandAvailable = 1;
 
